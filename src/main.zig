@@ -73,7 +73,7 @@ pub fn main() !void {
     outer: while (reqs.validChars() < reqs.len) {
         words = try words.withRequirements(allocator, reqs);
         if (words.words.items.len <= 1) {
-            break;
+            break :outer;
         }
         try stdout.print(next_pane, .{});
         const current_word = try reqs.toWord(allocator);
@@ -89,37 +89,46 @@ pub fn main() !void {
         try stdout.print("The most common character is '{c}'.\n", .{common_char});
 
         try stdout.print("It matched for the spots: ", .{});
-        const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', math.maxInt(usize));
-        defer allocator.free(in.?);
-        if (in.?.len < 1) {
-            try reqs.info.append(Char{ .char = common_char, .pos = null });
-            continue;
-        }
-        for (in.?) |char| {
-            switch (char) {
-                '0'...'9', ',', '\'' => {},
-                else => {
-                    try stdout.print("'{s}' contains invalid characters.\n", .{in.?});
+        const in = in: {
+            const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', math.maxInt(usize));
+            if (in.?.len < 1) {
+                try reqs.info.append(Char{ .char = common_char, .pos = null });
+                continue :outer;
+            }
+            for (in.?) |char| {
+                switch (char) {
+                    '0'...'9', ',' => {},
+                    else => {
+                        try stdout.print("'{s}' contains invalid characters.\n", .{in.?});
+                        continue :outer;
+                    },
+                }
+            }
+            break :in in.?;
+        };
+        defer allocator.free(in);
+
+        var iter = mem.splitSequence(u8, in, ",");
+        while (iter.next()) |num_str| {
+            const num = std.fmt.parseInt(u8, num_str, 10) catch |err| switch (err) {
+                error.Overflow => {
+                    try stdout.print(
+                        "I highly doubt that word has more than {d} letters...\n",
+                        .{math.maxInt(u8)},
+                    );
                     continue :outer;
                 },
-            }
-        }
-
-        var iter = mem.splitSequence(u8, in.?, ",");
-        while (iter.next()) |num_str| {
-            reqs.append(
-                common_char,
-                try std.fmt.parseInt(u8, num_str, 10) - 1,
-            ) catch continue;
+                else => return err,
+            };
+            try reqs.append(common_char, num - 1);
         }
     }
     try stdout.print(next_pane, .{});
-    const current_word = try reqs.toWord(allocator);
-    defer allocator.free(current_word);
-    if (words.words.items.len == 0) {
-        try stdout.print("No words in the database match.\n", .{});
-    } else {
+    words = try words.withRequirements(allocator, reqs);
+    if (words.words.items.len > 0) {
         try stdout.print("You won! The word was: '{s}' (Right?)\n", .{words.words.items[0]});
+    } else {
+        try stdout.print("No words in the database match.\n", .{});
     }
 }
 
@@ -203,8 +212,7 @@ const Words = struct {
     }
 
     pub fn mostCommonChar(self: Words, reqs: Requirements) u8 {
-        var chars: [math.maxInt(u8)]usize = undefined;
-        @memset(&chars, 0);
+        var chars = [_]usize{0} ** math.maxInt(u8);
         for (self.words.items) |word| {
             for (word) |char| {
                 if (!ascii.isAlphabetic(char) or reqs.containsInfoOn(ascii.toLower(char))) {
@@ -235,17 +243,17 @@ const Words = struct {
         var new_words = Words.init(allocator);
         word_loop: for (self.words.items) |word| {
             // if (try unicode.calcUtf16LeLen(word) != reqs.len)
-            if (word.len != reqs.len)
+            if (word.len != reqs.len) {
                 continue :word_loop;
+            }
 
             for (reqs.info.items) |info| {
-                var buf: [math.maxInt(u8)]bool = undefined;
+                var buf = [_]bool{true} ** math.maxInt(u8);
                 var checklist = buf[0..reqs.len];
-                @memset(checklist, true);
 
                 for (reqs.info.items) |_info| {
-                    if (info.char == _info.char) {
-                        checklist[_info.pos orelse continue] = false;
+                    if (info.char == _info.char and _info.pos != null) {
+                        checklist[_info.pos.?] = false;
                     }
                 }
 
@@ -255,8 +263,10 @@ const Words = struct {
                     }
                 }
             }
+
             try new_words.words.append(word);
         }
+
         return new_words;
     }
 };
