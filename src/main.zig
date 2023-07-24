@@ -1,4 +1,5 @@
 const std = @import("std");
+const unicode = std.unicode;
 const ascii = std.ascii;
 const math = std.math;
 const mem = std.mem;
@@ -25,15 +26,15 @@ pub fn main() !void {
     var resource_dir = try fs.cwd().openIterableDir("./resources", .{});
     defer resource_dir.close();
     var res_iter = resource_dir.iterate();
-    while (try res_iter.next()) |file| {
-        if (file.kind != .file) {
+    while (try res_iter.next()) |ifile| {
+        if (ifile.kind != .file) {
             continue;
         }
-        const ofile = try dir.openFile(file.name, .{});
-        defer ofile.close();
-        const file_contents = try ofile.readToEndAlloc(allocator, math.maxInt(usize));
+        const file = try dir.openFile(ifile.name, .{});
+        defer file.close();
+        const file_contents = try file.readToEndAlloc(allocator, math.maxInt(usize));
         try files.append(file_contents);
-        try stdout.print("[SYSTEM] Loaded {s: >32}\n", .{file.name});
+        try stdout.print("[SYSTEM] Loaded {s: >32}\n", .{ifile.name});
     }
     if (files.items.len == 0) {
         try stdout.print("[ERROR] No files found", .{});
@@ -167,7 +168,7 @@ const Requirements = struct {
                 return error.CharacterAlreadyKnown;
             }
         }
-        try self.info.append(Char{ .pos = pos, .char = ascii.toLower(char) });
+        try self.info.append(Char{ .pos = pos, .char = char });
     }
 
     pub fn validChars(self: Requirements) u8 {
@@ -194,8 +195,9 @@ const Words = struct {
     pub fn addFile(self: *Words, fcontents: []const u8) !void {
         var iter = mem.split(u8, fcontents, "\n");
         while (iter.next()) |word| {
-            if (word.len == 0)
+            if (word.len == 0) {
                 continue;
+            }
             try self.words.append(word);
         }
     }
@@ -205,9 +207,9 @@ const Words = struct {
         @memset(&chars, 0);
         for (self.words.items) |word| {
             for (word) |char| {
-                if (!ascii.isAlphabetic(char) or
-                    reqs.containsInfoOn(ascii.toLower(char)))
+                if (!ascii.isAlphabetic(char) or reqs.containsInfoOn(ascii.toLower(char))) {
                     continue;
+                }
                 chars[ascii.toLower(char)] += 1;
             }
         }
@@ -222,7 +224,7 @@ const Words = struct {
             @panic("returned character is the null character");
         if (!(ascii.isAlphabetic(char) or char == '-'))
             @panic("returned character is not valid");
-        return char;
+        return ascii.toLower(char);
     }
 
     pub fn withRequirements(
@@ -232,6 +234,7 @@ const Words = struct {
     ) !Words {
         var new_words = Words.init(allocator);
         word_loop: for (self.words.items) |word| {
+            // if (try unicode.calcUtf16LeLen(word) != reqs.len)
             if (word.len != reqs.len)
                 continue :word_loop;
 
@@ -247,7 +250,7 @@ const Words = struct {
                 }
 
                 for (word, checklist) |char, check| {
-                    if ((ascii.toLower(info.char) == ascii.toLower(char)) == check) {
+                    if ((info.char == ascii.toLower(char)) == check) {
                         continue :word_loop;
                     }
                 }
