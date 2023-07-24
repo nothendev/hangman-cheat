@@ -79,8 +79,10 @@ pub fn main() !void {
         defer allocator.free(current_word);
         try stdout.print("Current word: {s}\n", .{current_word});
         try stdout.print("{d} words match your requirements.\n", .{words.words.items.len});
-        for (0..@min(words.words.items.len, 9)) |i| {
-            try stdout.print("\t{s}\n", .{words.words.items[i]});
+        if (words.words.items.len <= 10) {
+            for (0..@min(words.words.items.len, 9)) |i| {
+                try stdout.print("\t{s}\n", .{words.words.items[i]});
+            }
         }
         const common_char = words.mostCommonChar(reqs);
         try stdout.print("The most common character is '{c}'.\n", .{common_char});
@@ -94,7 +96,7 @@ pub fn main() !void {
         }
         for (in.?) |char| {
             switch (char) {
-                '0'...'9', ',' => {},
+                '0'...'9', ',', '\'' => {},
                 else => {
                     try stdout.print("'{s}' contains invalid characters.\n", .{in.?});
                     continue :outer;
@@ -113,8 +115,11 @@ pub fn main() !void {
     try stdout.print(next_pane, .{});
     const current_word = try reqs.toWord(allocator);
     defer allocator.free(current_word);
-    try stdout.print("The word was: '{s}'\n", .{words.words.items[0]});
-    try stdout.print("You won! (Right?)\n", .{});
+    if (words.words.items.len == 0) {
+        try stdout.print("No words in the database match.\n", .{});
+    } else {
+        try stdout.print("You won! The word was: '{s}' (Right?)\n", .{words.words.items[0]});
+    }
 }
 
 const Char = struct {
@@ -201,7 +206,7 @@ const Words = struct {
         for (self.words.items) |word| {
             for (word) |char| {
                 if (!ascii.isAlphabetic(char) or
-                    reqs.containsInfoOn(char))
+                    reqs.containsInfoOn(ascii.toLower(char)))
                     continue;
                 chars[ascii.toLower(char)] += 1;
             }
@@ -213,8 +218,10 @@ const Words = struct {
                 char = @intCast(i);
             most_common = @max(n, most_common);
         }
-        if (char == 0) @panic("returned character is the null character");
-        if (!(ascii.isAlphabetic(char) or char == '-')) @panic("returned character is not valid");
+        if (char == 0)
+            @panic("returned character is the null character");
+        if (!(ascii.isAlphabetic(char) or char == '-'))
+            @panic("returned character is not valid");
         return char;
     }
 
@@ -232,6 +239,7 @@ const Words = struct {
                 var buf: [math.maxInt(u8)]bool = undefined;
                 var checklist = buf[0..reqs.len];
                 @memset(checklist, true);
+
                 for (reqs.info.items) |_info| {
                     if (info.char == _info.char) {
                         checklist[_info.pos orelse continue] = false;
@@ -239,7 +247,7 @@ const Words = struct {
                 }
 
                 for (word, checklist) |char, check| {
-                    if ((ascii.toLower(info.char) == char) == check) {
+                    if ((ascii.toLower(info.char) == ascii.toLower(char)) == check) {
                         continue :word_loop;
                     }
                 }
