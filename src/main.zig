@@ -14,9 +14,12 @@ const stdin = std.io.getStdIn().reader();
 const next_pane = "\n" ++ "-" ** 50 ++ "\n\n";
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // defer arena.deinit();
+    // const allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
@@ -38,7 +41,7 @@ pub fn main() !void {
     }
     if (files.items.len == 0) {
         try stdout.print("[ERROR] No files found", .{});
-        return;
+        os.exit(1);
     }
 
     defer for (files.items) |file|
@@ -59,7 +62,7 @@ pub fn main() !void {
             },
         };
     };
-    try stdout.print("Okidoki!\n", .{});
+    // try stdout.print("Okidoki!\n", .{});
 
     var reqs = try Requirements.init(allocator, len);
     defer reqs.info.deinit();
@@ -69,9 +72,10 @@ pub fn main() !void {
     for (files.items) |file| {
         try words.addFile(file);
     }
+    try stdout.print("[SYSTEM] {d} words loaded.\n", .{words.words.items.len});
 
     outer: while (reqs.validChars() < reqs.len) {
-        words = try words.withRequirements(allocator, reqs);
+        try words.withRequirements(reqs);
         if (words.words.items.len <= 1) {
             break :outer;
         }
@@ -124,7 +128,7 @@ pub fn main() !void {
         }
     }
     try stdout.print(next_pane, .{});
-    words = try words.withRequirements(allocator, reqs);
+    try words.withRequirements(reqs);
     if (words.words.items.len > 0) {
         try stdout.print("You won! The word was: '{s}' (Right?)\n", .{words.words.items[0]});
     } else {
@@ -235,38 +239,43 @@ const Words = struct {
         return ascii.toLower(char);
     }
 
+    /// removes all words that do not fulfill the given requirements
     pub fn withRequirements(
-        self: Words,
-        allocator: Allocator,
+        self: *Words,
         reqs: Requirements,
-    ) !Words {
-        var new_words = Words.init(allocator);
-        word_loop: for (self.words.items) |word| {
-            // if (try unicode.calcUtf16LeLen(word) != reqs.len)
-            if (word.len != reqs.len) {
-                continue :word_loop;
-            }
+    ) !void {
+        var idx: usize = 0;
+        while (idx < self.words.items.len) {
+            const chars_match = match: {
+                if (self.words.items[idx].len != reqs.len) {
+                    break :match false;
+                }
 
-            for (reqs.info.items) |info| {
-                var buf = [_]bool{true} ** math.maxInt(u8);
-                var checklist = buf[0..reqs.len];
+                for (reqs.info.items) |info| {
+                    var buf = [_]bool{false} ** math.maxInt(u8);
+                    var checklist = buf[0..reqs.len];
 
-                for (reqs.info.items) |_info| {
-                    if (info.char == _info.char and _info.pos != null) {
-                        checklist[_info.pos.?] = false;
+                    for (reqs.info.items) |_info| {
+                        if (info.char == _info.char and _info.pos != null) {
+                            checklist[_info.pos.?] = true;
+                        }
+                    }
+
+                    for (self.words.items[idx], checklist) |char, check| {
+                        if ((info.char == ascii.toLower(char)) != check) {
+                            break :match false;
+                        }
                     }
                 }
 
-                for (word, checklist) |char, check| {
-                    if ((info.char == ascii.toLower(char)) == check) {
-                        continue :word_loop;
-                    }
-                }
-            }
+                break :match true;
+            };
 
-            try new_words.words.append(word);
+            if (chars_match) {
+                idx += 1;
+            } else {
+                _ = self.words.swapRemove(idx);
+            }
         }
-
-        return new_words;
     }
 };
