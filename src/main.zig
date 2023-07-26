@@ -36,6 +36,7 @@ pub fn main() !void {
         const file = try dir.openFile(ifile.name, .{});
         defer file.close();
         const file_contents = try file.readToEndAlloc(allocator, math.maxInt(usize));
+        errdefer allocator.free(file_contents);
         try files.append(file_contents);
         try stdout.print("[SYSTEM] Loaded {s: >32}\n", .{ifile.name});
     }
@@ -51,6 +52,7 @@ pub fn main() !void {
     try stdout.print("Please enter the length of the word: ", .{});
     const len = len: {
         const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', 4);
+        defer allocator.free(in.?);
         break :len std.fmt.parseInt(u8, in.?, 10) catch |err| switch (err) {
             error.InvalidCharacter => {
                 try stdout.print("I asked for a number.\n", .{});
@@ -246,7 +248,7 @@ const Words = struct {
     ) !void {
         var idx: usize = 0;
         while (idx < self.words.items.len) {
-            const chars_match = match: {
+            const match = match: {
                 if (self.words.items[idx].len != reqs.len) {
                     break :match false;
                 }
@@ -271,7 +273,7 @@ const Words = struct {
                 break :match true;
             };
 
-            if (chars_match) {
+            if (match) {
                 idx += 1;
             } else {
                 _ = self.words.swapRemove(idx);
