@@ -14,12 +14,9 @@ const stdin = std.io.getStdIn().reader();
 const next_pane = "\n" ++ "-" ** 50 ++ "\n\n";
 
 pub fn main() !void {
-    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    // defer arena.deinit();
-    // const allocator = arena.allocator();
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
@@ -76,10 +73,10 @@ pub fn main() !void {
     }
     try stdout.print("[SYSTEM] {d} words loaded.\n", .{words.words.items.len});
 
-    outer: while (reqs.validChars() < reqs.len) {
+    iteration: while (reqs.validChars() < reqs.len) {
         try words.withRequirements(reqs);
         if (words.words.items.len <= 1) {
-            break :outer;
+            break :iteration;
         }
         try stdout.print(next_pane, .{});
         const current_word = try reqs.toWord(allocator);
@@ -91,7 +88,7 @@ pub fn main() !void {
                 try stdout.print("\t{s}\n", .{words.words.items[i]});
             }
         }
-        const common_char = words.mostCommonChar(reqs);
+        const common_char = try words.mostCommonChar(reqs);
         try stdout.print("The most common character is '{c}'.\n", .{common_char});
 
         try stdout.print("It matched for the spots: ", .{});
@@ -99,14 +96,14 @@ pub fn main() !void {
             const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', math.maxInt(usize));
             if (in.?.len < 1) {
                 try reqs.info.append(Char{ .char = common_char, .pos = null });
-                continue :outer;
+                continue :iteration;
             }
             for (in.?) |char| {
                 switch (char) {
                     '0'...'9', ',' => {},
                     else => {
                         try stdout.print("'{s}' contains invalid characters.\n", .{in.?});
-                        continue :outer;
+                        continue :iteration;
                     },
                 }
             }
@@ -122,7 +119,7 @@ pub fn main() !void {
                         "I highly doubt that word has more than {d} letters...\n",
                         .{math.maxInt(u8)},
                     );
-                    continue :outer;
+                    continue :iteration;
                 },
                 else => return err,
             };
@@ -217,7 +214,10 @@ const Words = struct {
         }
     }
 
-    pub fn mostCommonChar(self: Words, reqs: Requirements) u8 {
+    pub fn mostCommonChar(self: Words, reqs: Requirements) !u8 {
+        if (self.words.items.len == 0) {
+            return error.EmptyList;
+        }
         var chars = [_]usize{0} ** math.maxInt(u8);
         for (self.words.items) |word| {
             for (word) |char| {
