@@ -5,45 +5,61 @@ const math = std.math;
 const mem = std.mem;
 const fs = std.fs;
 const os = std.os;
+const io = std.io;
 
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const stdout = std.io.getStdOut().writer();
 const stdin = std.io.getStdIn().reader();
 
 const next_pane = "\n" ++ "-" ** 50 ++ "\n\n";
+const resource_path = "./resources";
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    // measuring how long it takes to load the file
+    const file_loading_start_time = std.time.milliTimestamp();
+
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
-    var dir = try fs.cwd().openDir("./resources", .{});
+
+    var dir = try fs.cwd().openDir(resource_path, .{});
     defer dir.close();
 
-    var resource_dir = try fs.cwd().openIterableDir("./resources", .{});
+    var resource_dir = try fs.cwd().openIterableDir(resource_path, .{});
     defer resource_dir.close();
-    var res_iter = resource_dir.iterate();
-    while (try res_iter.next()) |ifile| {
+
+    var resource_iter = resource_dir.iterate();
+    while (try resource_iter.next()) |ifile| {
         if (ifile.kind != .file) {
             continue;
         }
+
         const file = try dir.openFile(ifile.name, .{});
         defer file.close();
+
         const file_contents = try file.readToEndAlloc(allocator, math.maxInt(usize));
         errdefer allocator.free(file_contents);
+
         try files.append(file_contents);
+
         try stdout.print("[SYSTEM] Loaded {s: >32}\n", .{ifile.name});
     }
+
     if (files.items.len == 0) {
         try stdout.print("[ERROR] No files found", .{});
         os.exit(1);
     }
 
-    defer for (files.items) |file|
+    defer for (files.items) |file| {
         allocator.free(file);
+    };
+
+    // measuring how long it takes to load the file
+    try stdout.print("took {d}ms", .{std.time.milliTimestamp() - file_loading_start_time});
+
     try stdout.print(next_pane, .{});
 
     try stdout.print("Please enter the length of the word: ", .{});
@@ -52,11 +68,11 @@ pub fn main() !void {
         defer allocator.free(in.?);
         break :len std.fmt.parseInt(u8, in.?, 10) catch |err| switch (err) {
             error.InvalidCharacter => {
-                try stdout.print("I asked for a number.\n", .{});
+                try stdout.print("[ERROR] not a number\n", .{});
                 os.exit(1);
             },
             error.Overflow => {
-                try stdout.print("I highly doubt that word has more than {d} letters...\n", .{math.maxInt(u8)});
+                try stdout.print("[ERROR] word cannot be longer than {d} characters\n", .{math.maxInt(u8)});
                 os.exit(1);
             },
         };
@@ -71,7 +87,7 @@ pub fn main() !void {
     for (files.items) |file| {
         try words.addFile(file);
     }
-    try stdout.print("[SYSTEM] {d} words loaded.\n", .{words.words.items.len});
+    try stdout.print("[SYSTEM] {d} words loaded\n", .{words.words.items.len});
 
     iteration: while (reqs.validChars() < reqs.len) {
         try words.withRequirements(reqs);
@@ -84,8 +100,8 @@ pub fn main() !void {
         try stdout.print("Current word: {s}\n", .{current_word});
         try stdout.print("{d} words match your requirements.\n", .{words.words.items.len});
         if (words.words.items.len <= 10) {
-            for (0..@min(words.words.items.len, 9)) |i| {
-                try stdout.print("\t{s}\n", .{words.words.items[i]});
+            for (words.words.items) |word| {
+                try stdout.print("\t{s}\n", .{word});
             }
         }
         const common_char = try words.mostCommonChar(reqs);
@@ -115,10 +131,7 @@ pub fn main() !void {
         while (iter.next()) |num_str| {
             const num = std.fmt.parseInt(u8, num_str, 10) catch |err| switch (err) {
                 error.Overflow => {
-                    try stdout.print(
-                        "I highly doubt that word has more than {d} letters...\n",
-                        .{math.maxInt(u8)},
-                    );
+                    try stdout.print("I highly doubt that word has more than {d} letters...\n", .{math.maxInt(u8)});
                     continue :iteration;
                 },
                 else => return err,
@@ -133,6 +146,7 @@ pub fn main() !void {
     } else {
         try stdout.print("No words in the database match.\n", .{});
     }
+    try stdout.print("made by markus_or_smth\n", .{});
 }
 
 const Char = struct {
@@ -207,6 +221,12 @@ const Words = struct {
     pub fn addFile(self: *Words, fcontents: []const u8) !void {
         var iter = mem.split(u8, fcontents, "\n");
         while (iter.next()) |word| {
+            // this is a really shit idea
+            // for (self.words.items) |already_known_word| {
+            // if (mem.eql(u8, already_known_word, word)) {
+            // continue :outer;
+            // }
+            // }
             if (word.len == 0) {
                 continue;
             }
@@ -221,7 +241,7 @@ const Words = struct {
         var chars = [_]usize{0} ** math.maxInt(u8);
         for (self.words.items) |word| {
             for (word) |char| {
-                if (!ascii.isAlphabetic(char) or reqs.containsInfoOn(ascii.toLower(char))) {
+                if (reqs.containsInfoOn(ascii.toLower(char))) {
                     continue;
                 }
                 chars[ascii.toLower(char)] += 1;
@@ -234,11 +254,14 @@ const Words = struct {
                 char = @intCast(i);
             most_common = @max(n, most_common);
         }
-        if (char == 0)
-            @panic("returned character is the null character");
-        if (!(ascii.isAlphabetic(char) or char == '-'))
-            @panic("returned character is not valid");
-        return ascii.toLower(char);
+
+        switch (char) {
+            0 => @panic("returned character is the null character"),
+            'A'...'Z' => @panic("this char shouldnt be possible"),
+            else => {},
+        }
+
+        return char;
     }
 
     /// removes all words that do not fulfill the given requirements
@@ -277,6 +300,27 @@ const Words = struct {
                 idx += 1;
             } else {
                 _ = self.words.swapRemove(idx);
+            }
+        }
+
+        if (self.words.items.len < 100) {
+            self.removeDuplicates();
+        }
+    }
+
+    pub fn removeDuplicates(self: *Words) void {
+        if (self.words.items.len > 100) {
+            @panic("you do *not* want to do this");
+        }
+
+        var idx: usize = 0;
+        while (idx < self.words.items.len) {
+            for (self.words.items, 0..) |word, _idx| {
+                if (mem.eql(u8, self.words.items[idx], word) and idx != _idx) {
+                    _ = self.words.swapRemove(idx);
+                } else {
+                    idx += 1;
+                }
             }
         }
     }
