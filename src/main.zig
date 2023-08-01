@@ -267,12 +267,12 @@ const Words = struct {
         self: *Words,
         reqs: Requirements,
     ) !void {
-        // const start_time = std.time.microTimestamp();
-        // const start_len = self.words.items.len;
-        // defer stdout.print(
-        // "[SYSTEM] removing {d} redundant words took: {d}us\n",
-        // .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
-        // ) catch {};
+        const start_time = std.time.microTimestamp();
+        const start_len = self.words.items.len;
+        defer stdout.print(
+            "[SYSTEM] removing {d} redundant words took: {d}us\n",
+            .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
+        ) catch {};
 
         {
             var idx: usize = 0;
