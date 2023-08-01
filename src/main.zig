@@ -19,8 +19,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // measuring how long it takes to load the file
-    const file_loading_start_time = std.time.milliTimestamp();
+    const file_loading_start_time = std.time.microTimestamp();
 
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
@@ -57,8 +56,7 @@ pub fn main() !void {
         allocator.free(file);
     };
 
-    // measuring how long it takes to load the file
-    try stdout.print("took {d}ms", .{std.time.milliTimestamp() - file_loading_start_time});
+    try stdout.print("took {d}us", .{std.time.microTimestamp() - file_loading_start_time});
 
     try stdout.print(next_pane, .{});
 
@@ -269,37 +267,47 @@ const Words = struct {
         self: *Words,
         reqs: Requirements,
     ) !void {
-        var idx: usize = 0;
-        while (idx < self.words.items.len) {
-            const match = match: {
+        // const start_time = std.time.microTimestamp();
+        // const start_len = self.words.items.len;
+        // defer stdout.print(
+        // "[SYSTEM] removing {d} redundant words took: {d}us\n",
+        // .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
+        // ) catch {};
+
+        {
+            var idx: usize = 0;
+            while (idx < self.words.items.len) {
                 if (self.words.items[idx].len != reqs.len) {
-                    break :match false;
+                    _ = self.words.swapRemove(idx);
+                } else {
+                    idx += 1;
                 }
+            }
+        }
 
-                for (reqs.info.items) |info| {
-                    var buf = [_]bool{false} ** math.maxInt(u8);
-                    var checklist = buf[0..reqs.len];
+        for (reqs.info.items) |info| {
+            var buf = [_]bool{false} ** math.maxInt(u8);
+            var checklist = buf[0..reqs.len];
 
-                    for (reqs.info.items) |_info| {
-                        if (info.char == _info.char and _info.pos != null) {
-                            checklist[_info.pos.?] = true;
-                        }
-                    }
-
-                    for (self.words.items[idx], checklist) |char, check| {
-                        if ((info.char == ascii.toLower(char)) != check) {
-                            break :match false;
-                        }
-                    }
+            for (reqs.info.items) |_info| {
+                if (info.char == _info.char) {
+                    checklist[_info.pos orelse continue] = true;
                 }
+            }
 
-                break :match true;
-            };
+            var idx: usize = 0;
+            while (idx < self.words.items.len) {
+                const match = for (self.words.items[idx], checklist) |char, check| {
+                    if ((info.char == ascii.toLower(char)) != check) {
+                        break false;
+                    }
+                } else true;
 
-            if (match) {
-                idx += 1;
-            } else {
-                _ = self.words.swapRemove(idx);
+                if (match) {
+                    idx += 1;
+                } else {
+                    _ = self.words.swapRemove(idx);
+                }
             }
         }
 
@@ -310,7 +318,10 @@ const Words = struct {
 
     pub fn removeDuplicates(self: *Words) void {
         if (self.words.items.len > 100) {
-            @panic("you do *not* want to do this");
+            @panic(
+                \\this operation is O(n^2), do not use on larger data sets
+                \\
+            );
         }
 
         var idx: usize = 0;
