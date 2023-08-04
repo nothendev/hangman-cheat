@@ -10,7 +10,6 @@ const io = std.io;
 const Allocator = std.mem.Allocator;
 const stdout = std.io.getStdOut().writer();
 const stdin = std.io.getStdIn().reader();
-
 const next_pane = "\n" ++ "-" ** 50 ++ "\n\n";
 const resource_path = "./resources";
 
@@ -19,7 +18,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const file_loading_start_time = std.time.microTimestamp();
+    // const file_loading_start_time = std.time.microTimestamp();
 
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
@@ -56,7 +55,7 @@ pub fn main() !void {
         allocator.free(file);
     };
 
-    try stdout.print("took {d}us", .{std.time.microTimestamp() - file_loading_start_time});
+    // try stdout.print("took {d}us", .{std.time.microTimestamp() - file_loading_start_time});
 
     try stdout.print(next_pane, .{});
 
@@ -254,8 +253,8 @@ const Words = struct {
         }
 
         switch (char) {
-            0 => @panic("returned character is the null character"),
-            'A'...'Z' => @panic("this char shouldnt be possible"),
+            0 => unreachable,
+            'A'...'Z' => unreachable,
             else => {},
         }
 
@@ -267,12 +266,12 @@ const Words = struct {
         self: *Words,
         reqs: Requirements,
     ) !void {
-        const start_time = std.time.microTimestamp();
-        const start_len = self.words.items.len;
-        defer stdout.print(
-            "[SYSTEM] removing {d} redundant words took: {d}us\n",
-            .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
-        ) catch {};
+        // const start_time = std.time.microTimestamp();
+        // const start_len = self.words.items.len;
+        // defer stdout.print(
+        // "[SYSTEM] removing {d} redundant words took: {d}us\n",
+        // .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
+        // ) catch {};
 
         {
             var idx: usize = 0;
@@ -318,10 +317,7 @@ const Words = struct {
 
     pub fn removeDuplicates(self: *Words) void {
         if (self.words.items.len > 100) {
-            @panic(
-                \\this operation is O(n^2), do not use on larger data sets
-                \\
-            );
+            unreachable; // this operation is O(n^2), do not use on larger data sets
         }
 
         var idx: usize = 0;
