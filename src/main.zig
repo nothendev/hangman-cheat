@@ -10,6 +10,8 @@ const io = std.io;
 const Allocator = std.mem.Allocator;
 const stdout = std.io.getStdOut().writer();
 const stdin = std.io.getStdIn().reader();
+const assert = std.debug.assert;
+
 const next_pane = "\n" ++ "-" ** 50 ++ "\n\n";
 const resource_path = "./resources";
 
@@ -17,8 +19,6 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-
-    // const file_loading_start_time = std.time.microTimestamp();
 
     var files = std.ArrayList([]const u8).init(allocator);
     defer files.deinit();
@@ -45,36 +45,34 @@ pub fn main() !void {
 
         try stdout.print("[SYSTEM] Loaded {s: >32}\n", .{ifile.name});
     }
+    defer for (files.items) |file| {
+        allocator.free(file);
+    };
 
     if (files.items.len == 0) {
         try stdout.print("[ERROR] No files found", .{});
         os.exit(1);
     }
 
-    defer for (files.items) |file| {
-        allocator.free(file);
-    };
-
-    // try stdout.print("took {d}us", .{std.time.microTimestamp() - file_loading_start_time});
-
     try stdout.print(next_pane, .{});
 
-    try stdout.print("Please enter the length of the word: ", .{});
-    const len = len: {
+    const len = len: while (true) {
+        try stdout.print("Please enter the length of the word: ", .{});
+
         const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', 4);
         defer allocator.free(in.?);
+
         break :len std.fmt.parseInt(u8, in.?, 10) catch |err| switch (err) {
             error.InvalidCharacter => {
                 try stdout.print("[ERROR] not a number\n", .{});
-                os.exit(1);
+                continue;
             },
             error.Overflow => {
                 try stdout.print("[ERROR] word cannot be longer than {d} characters\n", .{math.maxInt(u8)});
-                os.exit(1);
+                continue;
             },
         };
     };
-    // try stdout.print("Okidoki!\n", .{});
 
     var reqs = try Requirements.init(allocator, len);
     defer reqs.info.deinit();
@@ -87,39 +85,46 @@ pub fn main() !void {
     try stdout.print("[SYSTEM] {d} words loaded\n", .{words.words.items.len});
 
     iteration: while (reqs.validChars() < reqs.len) {
-        try words.withRequirements(reqs);
+        try words.removeUnsuitable(reqs);
         if (words.words.items.len <= 1) {
             break :iteration;
         }
+
         try stdout.print(next_pane, .{});
+
         const current_word = try reqs.toWord(allocator);
         defer allocator.free(current_word);
         try stdout.print("Current word: {s}\n", .{current_word});
+
         try stdout.print("{d} words match your requirements.\n", .{words.words.items.len});
         if (words.words.items.len <= 10) {
             for (words.words.items) |word| {
                 try stdout.print("\t{s}\n", .{word});
             }
         }
+
         const common_char = try words.mostCommonChar(reqs);
         try stdout.print("The most common character is '{c}'.\n", .{common_char});
 
-        try stdout.print("It matched for the spots: ", .{});
-        const in = in: {
+        const in = in: while (true) {
+            try stdout.print("It matched for the spots: ", .{});
+
             const in = try stdin.readUntilDelimiterOrEofAlloc(allocator, '\n', math.maxInt(usize));
             if (in.?.len < 1) {
                 try reqs.info.append(Char{ .char = common_char, .pos = null });
                 continue :iteration;
             }
+
             for (in.?) |char| {
                 switch (char) {
                     '0'...'9', ',' => {},
                     else => {
-                        try stdout.print("'{s}' contains invalid characters.\n", .{in.?});
-                        continue :iteration;
+                        try stdout.print("[ERROR] contains invalid characters\n", .{});
+                        continue;
                     },
                 }
             }
+
             break :in in.?;
         };
         defer allocator.free(in);
@@ -128,7 +133,7 @@ pub fn main() !void {
         while (iter.next()) |num_str| {
             const num = std.fmt.parseInt(u8, num_str, 10) catch |err| switch (err) {
                 error.Overflow => {
-                    try stdout.print("I highly doubt that word has more than {d} letters...\n", .{math.maxInt(u8)});
+                    try stdout.print("[ERROR] word cannot be longer than {d} characters\n", .{math.maxInt(u8)});
                     continue :iteration;
                 },
                 else => return err,
@@ -136,13 +141,17 @@ pub fn main() !void {
             try reqs.append(common_char, num - 1);
         }
     }
+
     try stdout.print(next_pane, .{});
-    try words.withRequirements(reqs);
+
+    try words.removeUnsuitable(reqs);
+
     if (words.words.items.len > 0) {
         try stdout.print("You won! The word was: '{s}' (Right?)\n", .{words.words.items[0]});
     } else {
         try stdout.print("No words in the database match.\n", .{});
     }
+
     try stdout.print("made by markus_or_smth\n", .{});
 }
 
@@ -197,8 +206,9 @@ const Requirements = struct {
     pub fn validChars(self: Requirements) u8 {
         var n: u8 = 0;
         for (self.info.items) |char| {
-            if (char.pos) |_|
+            if (char.pos) |_| {
                 n += 1;
+            }
         }
         return n;
     }
@@ -218,12 +228,6 @@ const Words = struct {
     pub fn addFile(self: *Words, fcontents: []const u8) !void {
         var iter = mem.split(u8, fcontents, "\n");
         while (iter.next()) |word| {
-            // this is a really shit idea
-            // for (self.words.items) |already_known_word| {
-            // if (mem.eql(u8, already_known_word, word)) {
-            // continue :outer;
-            // }
-            // }
             if (word.len == 0) {
                 continue;
             }
@@ -244,11 +248,13 @@ const Words = struct {
                 chars[ascii.toLower(char)] += 1;
             }
         }
+
         var char: u8 = 0;
         var most_common: usize = 0;
         for (chars, 0..) |n, i| {
-            if (n > most_common)
+            if (n > most_common) {
                 char = @intCast(i);
+            }
             most_common = @max(n, most_common);
         }
 
@@ -261,18 +267,10 @@ const Words = struct {
         return char;
     }
 
-    /// removes all words that do not fulfill the given requirements
-    pub fn withRequirements(
+    pub fn removeUnsuitable(
         self: *Words,
         reqs: Requirements,
     ) !void {
-        // const start_time = std.time.microTimestamp();
-        // const start_len = self.words.items.len;
-        // defer stdout.print(
-        // "[SYSTEM] removing {d} redundant words took: {d}us\n",
-        // .{ start_len - self.words.items.len, std.time.microTimestamp() - start_time },
-        // ) catch {};
-
         {
             var idx: usize = 0;
             while (idx < self.words.items.len) {
@@ -316,9 +314,7 @@ const Words = struct {
     }
 
     pub fn removeDuplicates(self: *Words) void {
-        if (self.words.items.len > 100) {
-            unreachable; // this operation is O(n^2), do not use on larger data sets
-        }
+        assert(self.words.items.len < 100); // this operation is O(n^2), do not use on larger data sets
 
         var idx: usize = 0;
         while (idx < self.words.items.len) {
