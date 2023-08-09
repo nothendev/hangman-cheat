@@ -22,7 +22,7 @@ pub fn deinit(self: *Words) void {
 }
 
 pub fn addFile(self: *Words, fcontents: []const u8) !void {
-    var iter = mem.split(u8, fcontents, "\n");
+    var iter = mem.splitScalar(u8, fcontents, '\n');
     while (iter.next()) |word| {
         if (word.len == 0) {
             continue;
